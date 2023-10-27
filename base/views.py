@@ -7,7 +7,7 @@ from django.contrib.auth.models import User
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.forms import UserCreationForm
 from django.db.models import Q
-from .forms import RoomForm
+from .forms import RoomForm, UserForm
 
 # rooms=[
 #     {'id': 1, 'name': 'Lets learn python'},
@@ -36,7 +36,7 @@ def loginPage(request):
             messages.error(request, 'Username or Password does not exist')
 
     context={'page':page}
-    return render(request, 'base/loging_register.html', context) #we use render to show something, to render something
+    return render(request, 'base/login_register.html', context) #we use render to show something, to render something
 
 def logoutUser(request):
     logout(request)
@@ -56,7 +56,7 @@ def registerUser(request):
             messages.error(request, 'An error ocurred during registration')
 
     context={'form':form}
-    return render(request, 'base/loging_register.html', context)
+    return render(request, 'base/login_register.html', context)
 
 def home(request):
     q=request.GET.get('q') if request.GET.get('q') != None else ''
@@ -68,7 +68,7 @@ def home(request):
         )#We use double underscore to refer the object due to it is a foreign key.
     #and we use icontains so that it retrieves every instance that contains q on it. like regular expressions
     room_count=rooms.count()
-    topics = Topic.objects.all()
+    topics = Topic.objects.all()[0:5]
     room_messages = Message.objects.filter(Q(room__topic__name__icontains=q))
 
     context={'rooms':rooms, 'topics':topics, 'room_count': room_count, 'room_messages':room_messages}
@@ -102,33 +102,41 @@ def userProfile(request, pk):
 @login_required(login_url='/login')#to restrict this pages only to loggedin users
 def createRoom(request):
     form = RoomForm()
+    topics = Topic.objects.all()
     if request.method=='POST':
         #print(request.POST) in console
-        form=RoomForm(request.POST)
-        if form.is_valid():
-            room=form.save(commit=False)#This gives us an instance of the formof our Room model
-            room.host = request.user
-            room.save()
-            return redirect('home')#Utilizamos el nombre de nuestra url en lugar del path como tal.
+        topic_name = request.POST.get('topic')
+        topic, created = Topic.objects.get_or_create(name = topic_name)
+        #form=RoomForm(request.POST)
+        Room.objects.create(
+            host=request.user,
+            topic = topic,
+            name = request.POST.get('name'),
+            description = request.POST.get('description'),
+        )
+        return redirect('home')#Utilizamos el nombre de nuestra url en lugar del path como tal.
 
-    context = {'form':form}
+    context = {'form':form, 'topics':topics}
     return render(request, 'base/room_form.html', context)
 
 @login_required(login_url='/login')
 def updateRoom(request, pk):
     room=Room.objects.get(id=pk)
     form = RoomForm(instance=room)#this attribute is usefull for us because it wont create a new register, it will give you that instance
-
+    topics = Topic.objects.all()
     if request.user != room.host:
         return HttpResponse('You are not allowed here!!')
 
     if request.method=='POST':
-        form=RoomForm(request.POST, instance=room)
-        if form.is_valid():
-            form.save()
-            return redirect('home')
+        topic_name = request.POST.get('topic')
+        topic, created = Topic.objects.get_or_create(name = topic_name)
+        room.name = request.POST.get('name')
+        room.topic = topic
+        room.description = request.POST.get('description')
+        room.save()
+        return redirect('home')
 
-    context={'form':form}
+    context={'form':form, 'topics':topics, 'room':room}
     return render(request, 'base/room_form.html', context)
 
 @login_required(login_url='/login')
@@ -158,3 +166,28 @@ def deleteMessage(request, pk):
         message.delete()
         return redirect('home')
     return render(request, 'base/delete.html', {'obj': message})
+
+@login_required(login_url='/login')
+def updateUser(request):
+    user = request.user
+    form = UserForm(instance=user)
+
+    if request.method == 'POST':
+        form = UserForm(request.POST, instance=user)
+        if form.is_valid():
+            form.save()
+            return redirect('user-profile', pk = user.id)
+
+    return render(request, 'base/update-user.html', {'form':form})
+
+def topicsPage(request):
+    q=request.GET.get('q') if request.GET.get('q') != None else ''
+    topics = Topic.objects.filter(name__icontains=q)
+    context={'topics':topics}
+    return render(request, 'base/topics.html', context)
+
+def activityPage(request):
+    room_messages = Message.objects.all()
+
+    context={'room_messages': room_messages}
+    return render(request, 'base/activity.html', context)
